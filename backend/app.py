@@ -6,6 +6,7 @@ from routes.auth import auth_bp
 from routes.admin import admin_bp
 from utils.seed_admin import seed_admin
 from routes.company import company_bp
+from routes.student import student_bp
 
 
 app = Flask(__name__)
@@ -15,6 +16,7 @@ db.init_app(app)
 jwt.init_app(app)
 cors.init_app(app)
 
+app.register_blueprint(student_bp)
 app.register_blueprint(company_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
