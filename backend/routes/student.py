@@ -71,3 +71,22 @@ def my_applications():
             'status': a.status,
         })
     return jsonify(result)
+
+@student_bp.route('/placements', methods=['GET'])
+@jwt_required()
+def my_placements():
+    if not check_student():
+        return jsonify({'message': 'Forbidden'}), 403
+    from models.models import Placement
+    student = get_student_profile()
+    placements = Placement.query.filter_by(student_id=student.id).all()
+    result = []
+    for p in placements:
+        result.append({
+            'id': p.id,
+            'position': p.position,
+            'salary': p.salary,
+            'company_id': p.company_id,
+        })
+    return jsonify(result)
+

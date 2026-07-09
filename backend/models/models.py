@@ -61,3 +61,14 @@ class Application(db.Model):
     student = db.relationship('Student', backref='applications')
     job = db.relationship('JobPosition', backref='applications')
 
+
+class Placement(db.Model):
+    __tablename__ = "placements"
+    id = db.Column(db.Integer, primary_key=True)
+    application_id = db.Column(db.Integer, db.ForeignKey("applications.id"), nullable=False)
+    student_id = db.Column(db.Integer, db.ForeignKey("students.id"), nullable=False)
+    company_id = db.Column(db.Integer, db.ForeignKey("companies.id"), nullable=False)
+    position = db.Column(db.String(150))
+    salary = db.Column(db.Float)
+
+    application = db.relationship("Application", backref="placement", uselist=False)

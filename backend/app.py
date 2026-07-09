@@ -1,7 +1,8 @@
 from flask import Flask
 from config import Config
 from extensions import db, jwt, cors
-from models.models import User, Company, Student, JobPosition, Application
+
+from models.models import User, Company, Student, JobPosition, Application, Placement
 from routes.auth import auth_bp
 from routes.admin import admin_bp
 from utils.seed_admin import seed_admin

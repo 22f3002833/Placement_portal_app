@@ -89,6 +89,40 @@ def update_application_status(app_id):
     app_obj = Application.query.get_or_404(app_id)
     if app_obj.job.company_id != company.id:
         return jsonify({'message': 'Forbidden'}), 403
+
+    data = request.get_json()
+    new_status = data.get('status', app_obj.status)
+    allowed_statuses = ['Applied', 'Shortlisted', 'Interview', 'Offer', 'Rejected', 'Placed']
+    if new_status not in allowed_statuses:
+        return jsonify({'message': f'Invalid status. Must be one of {allowed_statuses}'}), 400
+
+    app_obj.status = new_status
+    db.session.commit()
+
+    if new_status == 'Placed':
+        from models.models import Placement
+        existing_placement = Placement.query.filter_by(application_id=app_obj.id).first()
+        if not existing_placement:
+            placement = Placement(
+                application_id=app_obj.id,
+                student_id=app_obj.student_id,
+                company_id=company.id,
+                position=app_obj.job.title,
+                salary=app_obj.job.salary,
+            )
+            db.session.add(placement)
+            db.session.commit()
+
+    return jsonify({'message': 'Application status updated', 'status': new_status})
+
+@jwt_required()
+def update_application_status(app_id):
+    if not check_company():
+        return jsonify({'message': 'Forbidden'}), 403
+    company = get_company_profile()
+    app_obj = Application.query.get_or_404(app_id)
+    if app_obj.job.company_id != company.id:
+        return jsonify({'message': 'Forbidden'}), 403
     data = request.get_json()
     app_obj.status = data.get('status', app_obj.status)
     db.session.commit()
