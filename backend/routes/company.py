@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from functools import wraps
 
@@ -5,11 +6,15 @@ from flask import Blueprint, request, jsonify, send_from_directory, current_app,
 from flask_jwt_extended import verify_jwt_in_request, get_jwt, get_jwt_identity
 from flask_mail import Message
 from sqlalchemy import func
+from werkzeug.utils import secure_filename
 
-from extensions import db, mail
+from extensions import db, mail, cache
 from models.models import Company, JobPosition, Application, Placement, Student
-from celery_tasks import send_interview_reminder
-
+from celery_tasks import (
+    send_interview_reminder,
+    export_company_history_csv,
+    generate_company_monthly_report,
+)
 
 company_bp = Blueprint("company", __name__, url_prefix="/api/company")
 
@@ -37,7 +42,16 @@ def safe_send_interview_reminder(student_email, student_name, company_name, inte
         return False
 
 
-def send_interview_email_direct(student_email, student_name, company_name, job_title, interview_datetime, interview_mode=None, interview_location=None, interview_notes=None):
+def send_interview_email_direct(
+    student_email,
+    student_name,
+    company_name,
+    job_title,
+    interview_datetime,
+    interview_mode=None,
+    interview_location=None,
+    interview_notes=None
+):
     try:
         if interview_datetime:
             interview_time_text = interview_datetime.strftime("%d %b %Y, %I:%M %p")
@@ -137,6 +151,10 @@ def parse_date(value, field_name):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         raise ValueError(f"{field_name} must be in YYYY-MM-DD format")
+
+
+def clear_related_cache():
+    cache.clear()
 
 
 def serialize_job(job, applications_count=None):
@@ -285,7 +303,7 @@ def jobs():
     except ValueError as exc:
         return jsonify({"message": str(exc)}), 400
 
-    allowed_statuses = {"Active", "Closed", "Approved", "Rejected"}
+    allowed_statuses = {"Active", "Closed"}
     requested_status = data.get("status", "Active")
     if requested_status not in allowed_statuses:
         return jsonify({"message": "Invalid job status"}), 400
@@ -306,6 +324,7 @@ def jobs():
 
     db.session.add(job)
     db.session.commit()
+    clear_related_cache()
 
     return jsonify({
         "message": "Job created successfully",
@@ -325,6 +344,7 @@ def update_job(job_id):
     if request.method == "DELETE":
         db.session.delete(job)
         db.session.commit()
+        clear_related_cache()
         return jsonify({"message": "Job deleted successfully"}), 200
 
     data = request.get_json(silent=True) or {}
@@ -369,11 +389,13 @@ def update_job(job_id):
             return jsonify({"message": str(exc)}), 400
 
     if "status" in data:
-        if data["status"] not in ["Active", "Closed", "Approved", "Rejected"]:
+        if data["status"] not in ["Active", "Closed"]:
             return jsonify({"message": "Invalid job status"}), 400
         job.status = data["status"]
 
     db.session.commit()
+    clear_related_cache()
+
     return jsonify({
         "message": "Job updated successfully",
         "job": serialize_job(job)
@@ -448,6 +470,7 @@ def update_application_status(app_id):
 
     app_obj.status = new_status
     db.session.commit()
+    clear_related_cache()
 
     student_email = None
     student_name = "Student"
@@ -549,6 +572,7 @@ def finalize_placement(app_id):
 
     db.session.add(placement)
     db.session.commit()
+    clear_related_cache()
 
     return jsonify({
         "message": "Placement finalized successfully",
@@ -569,6 +593,156 @@ def list_placements():
     )
 
     return jsonify([serialize_placement(placement) for placement in placements]), 200
+
+
+@company_bp.route("/applications/history", methods=["GET"])
+@company_required()
+def company_application_history():
+    company = g.current_company
+
+    applications = (
+        Application.query
+        .join(JobPosition)
+        .filter(JobPosition.company_id == company.id)
+        .order_by(Application.created_at.desc())
+        .all()
+    )
+
+    result = []
+    for app in applications:
+        placement = Placement.query.filter_by(application_id=app.id).first()
+        result.append({
+            "application_id": app.id,
+            "student_id": app.student_id,
+            "student_name": app.student.name if app.student else None,
+            "student_email": app.student.user.email if app.student and app.student.user else None,
+            "job_id": app.job_id,
+            "job_title": app.job.title if app.job else None,
+            "status": app.status,
+            "feedback": app.feedback,
+            "interview_datetime": app.interview_datetime.isoformat() if app.interview_datetime else None,
+            "interview_mode": app.interview_mode,
+            "interview_location": app.interview_location,
+            "placement_position": placement.position if placement else None,
+            "placement_salary": placement.salary if placement else None,
+            "applied_at": app.created_at.isoformat() if app.created_at else None,
+        })
+
+    return jsonify(result), 200
+
+
+@company_bp.route("/exports/history", methods=["POST"])
+@company_required()
+def trigger_company_history_export():
+    company = g.current_company
+    company_email = company.user.email if company.user else None
+
+    task = export_company_history_csv.delay(company.id, company_email)
+
+    return jsonify({
+        "message": "Company history export started",
+        "task_id": task.id
+    }), 202
+
+
+@company_bp.route("/exports/status/<task_id>", methods=["GET"])
+@company_required()
+def company_export_status(task_id):
+    task = export_company_history_csv.AsyncResult(task_id)
+
+    payload = {
+        "task_id": task.id,
+        "state": task.state
+    }
+
+    if task.state == "SUCCESS":
+        payload["result"] = task.result
+    elif task.state == "FAILURE":
+        payload["error"] = str(task.info)
+
+    return jsonify(payload), 200
+
+
+@company_bp.route("/exports/download", methods=["GET"])
+@company_required()
+def download_company_export():
+    filename = secure_filename(request.args.get("filename", "").strip())
+    if not filename:
+        return jsonify({"message": "filename is required"}), 400
+
+    export_folder = current_app.config.get(
+        "EXPORTS_FOLDER",
+        os.path.join(os.getcwd(), "generated_exports")
+    )
+
+    file_path = os.path.join(export_folder, filename)
+    if not os.path.exists(file_path):
+        return jsonify({"message": "Export file not found"}), 404
+
+    response = send_from_directory(export_folder, filename, as_attachment=True)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@company_bp.route("/reports/monthly", methods=["POST"])
+@company_required()
+def trigger_monthly_report():
+    company = g.current_company
+    data = request.get_json(silent=True) or {}
+
+    month = data.get("month")
+    year = data.get("year")
+    company_email = company.user.email if company.user else None
+
+    task = generate_company_monthly_report.delay(company.id, company_email, month, year)
+
+    return jsonify({
+        "message": "Monthly report generation started",
+        "task_id": task.id
+    }), 202
+
+
+@company_bp.route("/reports/status/<task_id>", methods=["GET"])
+@company_required()
+def report_status(task_id):
+    task = generate_company_monthly_report.AsyncResult(task_id)
+
+    payload = {
+        "task_id": task.id,
+        "state": task.state
+    }
+
+    if task.state == "SUCCESS":
+        payload["result"] = task.result
+    elif task.state == "FAILURE":
+        payload["error"] = str(task.info)
+
+    return jsonify(payload), 200
+
+
+@company_bp.route("/reports/download", methods=["GET"])
+@company_required()
+def download_report():
+    filename = secure_filename(request.args.get("filename", "").strip())
+    if not filename:
+        return jsonify({"message": "filename is required"}), 400
+
+    reports_folder = current_app.config.get(
+        "REPORTS_FOLDER",
+        os.path.join(os.getcwd(), "generated_reports")
+    )
+
+    file_path = os.path.join(reports_folder, filename)
+    if not os.path.exists(file_path):
+        return jsonify({"message": "Report file not found"}), 404
+
+    response = send_from_directory(reports_folder, filename, as_attachment=True)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @company_bp.route("/students/<int:student_id>/resume", methods=["GET"])
@@ -593,8 +767,16 @@ def view_student_resume(student_id):
     if not related_application:
         return jsonify({"message": "You are not authorized to view this student's resume"}), 403
 
+    upload_folder = current_app.config.get("UPLOAD_FOLDER")
+    if not upload_folder:
+        return jsonify({"message": "Upload folder is not configured"}), 500
+
+    file_path = os.path.join(upload_folder, student.resume_path)
+    if not os.path.exists(file_path):
+        return jsonify({"message": "Resume file not found"}), 404
+
     response = send_from_directory(
-        current_app.config["UPLOAD_FOLDER"],
+        upload_folder,
         student.resume_path,
         as_attachment=False
     )

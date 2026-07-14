@@ -38,8 +38,6 @@ window.router = {
 
             if (typeof app.loadAdminDashboard === "function") {
                 await app.loadAdminDashboard();
-            } else {
-                await this.loadDashboardByRole(app, finalRole);
             }
             return;
         }
@@ -51,8 +49,6 @@ window.router = {
 
             if (typeof app.loadCompanyDashboard === "function") {
                 await app.loadCompanyDashboard();
-            } else {
-                await this.loadDashboardByRole(app, finalRole);
             }
             return;
         }
@@ -64,54 +60,11 @@ window.router = {
 
             if (typeof app.loadStudentDashboard === "function") {
                 await app.loadStudentDashboard();
-            } else {
-                await this.loadDashboardByRole(app, finalRole);
             }
             return;
         }
 
         this.logout(app, "Invalid role. Please log in again.");
-    },
-
-    async loadDashboardByRole(app, role) {
-        if (role === "admin") {
-            if (typeof app.fetchAdminStats === "function") {
-                await app.fetchAdminStats();
-            }
-            if (!app.userRole) return;
-
-            if (typeof app.fetchPendingCompanies === "function") {
-                await app.fetchPendingCompanies();
-            }
-            if (!app.userRole) return;
-
-            if (typeof app.fetchAdminCompanies === "function") {
-                await app.fetchAdminCompanies();
-            }
-            if (!app.userRole) return;
-
-            if (typeof app.fetchAdminStudents === "function") {
-                await app.fetchAdminStudents();
-            }
-            if (!app.userRole) return;
-
-            if (typeof app.fetchAdminJobs === "function") {
-                await app.fetchAdminJobs();
-            }
-            if (!app.userRole) return;
-
-            if (typeof app.fetchAdminApplications === "function") {
-                await app.fetchAdminApplications();
-            }
-        } else if (role === "company") {
-            if (typeof app.loadCompanyDashboard === "function") {
-                await app.loadCompanyDashboard();
-            }
-        } else if (role === "student") {
-            if (typeof app.loadStudentDashboard === "function") {
-                await app.loadStudentDashboard();
-            }
-        }
     },
 
     requireAuth(app, allowedRoles = []) {
@@ -140,7 +93,7 @@ window.router = {
 
         if (allowedRoles.length && !allowedRoles.includes(role)) {
             app.error = "You are not authorized to access this page.";
-            this.backToDashboard(app);
+            this.goToDashboard(app, role);
             return false;
         }
 

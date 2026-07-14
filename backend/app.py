@@ -3,7 +3,7 @@ from flask import Flask, render_template, jsonify
 from flask_cors import CORS
 
 from config import Config
-from extensions import db, jwt, mail
+from extensions import db, jwt, mail, cache
 from routes.auth import auth_bp
 from routes.admin import admin_bp
 from routes.company import company_bp
@@ -88,6 +88,7 @@ def create_app():
     db.init_app(app)
     jwt.init_app(app)
     mail.init_app(app)
+    cache.init_app(app)
 
     register_jwt_handlers(app)
 
@@ -111,14 +112,12 @@ def create_app():
         ensure_upload_folder(app)
         seed_admin_user(app)
 
-        print("\nREGISTERED ROUTES:")
-        for rule in app.url_map.iter_rules():
-            print(rule.methods, rule.rule)
-
     return app
 
 
 app = create_app()
 
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    debug_mode = os.getenv("FLASK_DEBUG", "False").lower() == "true"
+    app.run(debug=debug_mode)

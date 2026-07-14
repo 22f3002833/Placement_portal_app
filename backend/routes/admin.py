@@ -4,7 +4,7 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt, verify_jwt_in_request
 from sqlalchemy import func, or_
 
-from extensions import db
+from extensions import db, cache
 from models.models import User, Company, Student, JobPosition, Application, Placement
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
@@ -29,6 +29,20 @@ def clean_string(value):
     if value is None:
         return None
     return str(value).strip()
+
+
+def companies_cache_key():
+    search = (request.args.get("search", "") or "").strip().lower()
+    return f"admin_companies:search={search}"
+
+
+def students_cache_key():
+    search = (request.args.get("search", "") or "").strip().lower()
+    return f"admin_students:search={search}"
+
+
+def clear_admin_cache():
+    cache.clear()
 
 
 def serialize_company(company):
@@ -125,6 +139,7 @@ def serialize_application(app):
         "interview_datetime": app.interview_datetime.isoformat() if app.interview_datetime else None,
         "interview_mode": app.interview_mode,
         "interview_location": app.interview_location,
+        "interview_notes": app.interview_notes,
         "created_at": app.created_at.isoformat() if app.created_at else None
     }
 
@@ -161,6 +176,7 @@ def stats():
 
 @admin_bp.route("/companies", methods=["GET"])
 @admin_required()
+@cache.cached(timeout=300, key_prefix=companies_cache_key)
 def get_companies():
     search = clean_string(request.args.get("search", "")) or ""
 
@@ -203,11 +219,9 @@ def approve_company(company_id):
     if not company.user:
         return jsonify({"message": "Company user not found"}), 404
 
-    if company.user.is_approved:
-        return jsonify({"message": "Company is already approved"}), 200
-
     company.user.is_approved = True
     db.session.commit()
+    clear_admin_cache()
 
     return jsonify({"message": "Company approved successfully"}), 200
 
@@ -216,18 +230,22 @@ def approve_company(company_id):
 @admin_required()
 def remove_company(company_id):
     company = db.get_or_404(Company, company_id)
-    user = company.user
+
+    if company.user:
+        company.user.is_active = False
+        db.session.commit()
+        clear_admin_cache()
+        return jsonify({"message": "Company deactivated successfully"}), 200
 
     db.session.delete(company)
-    if user:
-        db.session.delete(user)
     db.session.commit()
-
+    clear_admin_cache()
     return jsonify({"message": "Company removed successfully"}), 200
 
 
 @admin_bp.route("/students", methods=["GET"])
 @admin_required()
+@cache.cached(timeout=300, key_prefix=students_cache_key)
 def get_students():
     search = clean_string(request.args.get("search", "")) or ""
 
@@ -266,7 +284,8 @@ def get_student_detail(student_id):
             "feedback": application.feedback,
             "interview_datetime": application.interview_datetime.isoformat() if application.interview_datetime else None,
             "interview_mode": application.interview_mode,
-            "interview_location": application.interview_location
+            "interview_location": application.interview_location,
+            "interview_notes": application.interview_notes
         })
 
     payload = serialize_student(student)
@@ -325,6 +344,7 @@ def manage_job(job_id):
     if request.method == "DELETE":
         db.session.delete(job)
         db.session.commit()
+        clear_admin_cache()
         return jsonify({"message": "Job removed successfully"}), 200
 
     data = request.get_json(silent=True) or {}
@@ -339,6 +359,7 @@ def manage_job(job_id):
 
     job.status = status
     db.session.commit()
+    clear_admin_cache()
 
     return jsonify({"message": "Job status updated successfully"}), 200
 
@@ -375,6 +396,7 @@ def toggle_blacklist(user_id):
 
     user.is_active = not user.is_active
     db.session.commit()
+    clear_admin_cache()
 
     return jsonify({
         "message": f"User active status updated to {user.is_active}",

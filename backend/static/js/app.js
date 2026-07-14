@@ -36,15 +36,7 @@ const createDefaultInterviewForm = () => ({
     interview_notes: ""
 });
 
-const app = createApp({
-    components: {
-        "login-component": window.LoginComponent,
-        "register-component": window.RegisterComponent,
-        "admin-dashboard": window.AdminDashboardComponent,
-        "company-dashboard": window.CompanyDashboardComponent,
-        "student-dashboard": window.StudentDashboardComponent
-    },
-
+const RootApp = {
     data() {
         return {
             currentView: "login",
@@ -156,6 +148,59 @@ const app = createApp({
             );
         },
 
+        exportToCsv(filename, rows) {
+            if (!Array.isArray(rows) || rows.length === 0) {
+                this.error = "No data to export";
+                return;
+            }
+
+            const headers = Object.keys(rows[0]);
+
+            const escapeCsvValue = (value) => {
+                const safeValue = value === null || value === undefined ? "" : String(value);
+                return `"${safeValue.replace(/"/g, '""')}"`;
+            };
+
+            const csvLines = [
+                headers.map(escapeCsvValue).join(","),
+                ...rows.map(row => headers.map(header => escapeCsvValue(row[header])).join(","))
+            ];
+
+            const csvContent = csvLines.join("\r\n");
+            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, 10000);
+
+            this.message = `${filename} downloaded successfully`;
+            this.error = "";
+        },
+
+        exportAdminCompaniesCsv() {
+            this.exportToCsv("admin_companies.csv", this.adminCompanies);
+        },
+
+        exportAdminStudentsCsv() {
+            this.exportToCsv("admin_students.csv", this.adminStudents);
+        },
+
+        exportAdminJobsCsv() {
+            this.exportToCsv("admin_jobs.csv", this.adminJobs);
+        },
+
+        exportAdminApplicationsCsv() {
+            this.exportToCsv("admin_applications.csv", this.adminApplications);
+        },
+
         async guardedRequest(url, options = {}) {
             const result = await window.api.request(url, options);
             const response = result.response;
@@ -227,15 +272,41 @@ const app = createApp({
         },
 
         switchView(view) {
-            window.router.setAuthView(this, view);
+            if (window.router && typeof window.router.setAuthView === "function") {
+                window.router.setAuthView(this, view);
+            } else {
+                this.currentView = view;
+            }
         },
 
         async goToDashboard(role = "") {
-            await window.router.goToDashboard(this, role);
+            if (window.router && typeof window.router.goToDashboard === "function") {
+                await window.router.goToDashboard(this, role);
+                return;
+            }
+
+            if (role === "admin") {
+                this.currentView = "admin-dashboard";
+                await this.loadAdminDashboard();
+            } else if (role === "company") {
+                this.currentView = "company-dashboard";
+                await this.loadCompanyDashboard();
+            } else if (role === "student") {
+                this.currentView = "student-dashboard";
+                await this.loadStudentDashboard();
+            }
         },
 
         logout() {
-            window.router.logout(this);
+            if (window.router && typeof window.router.logout === "function") {
+                window.router.logout(this);
+                return;
+            }
+
+            window.api.clearToken();
+            this.clearAppState();
+            this.currentView = "login";
+            this.message = "Logged out successfully";
         },
 
         async loadAdminDashboard() {
@@ -258,35 +329,27 @@ const app = createApp({
         },
 
         async fetchAdminStats() {
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/admin/stats",
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/admin/stats", {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load admin stats";
                 return;
             }
 
-            this.adminStats = data;
+            this.adminStats = data || null;
         },
 
         async fetchPendingCompanies() {
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/admin/companies/pending",
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/admin/companies/pending", {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load pending companies";
                 return;
@@ -296,16 +359,12 @@ const app = createApp({
         },
 
         async fetchAdminCompanies() {
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/admin/companies",
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/admin/companies", {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load companies";
                 return;
@@ -315,16 +374,12 @@ const app = createApp({
         },
 
         async fetchAdminStudents() {
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/admin/students",
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/admin/students", {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load students";
                 return;
@@ -334,16 +389,12 @@ const app = createApp({
         },
 
         async fetchAdminJobs() {
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/admin/jobs",
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/admin/jobs", {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load jobs";
                 return;
@@ -353,16 +404,12 @@ const app = createApp({
         },
 
         async fetchAdminApplications() {
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/admin/applications",
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/admin/applications", {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load applications";
                 return;
@@ -374,16 +421,12 @@ const app = createApp({
         async approveCompany(companyId) {
             this.clearMessages();
 
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                `/api/admin/companies/${companyId}/approve`,
-                {
-                    method: "PATCH",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest(`/api/admin/companies/${companyId}/approve`, {
+                method: "PATCH",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to approve company";
                 return;
@@ -400,19 +443,20 @@ const app = createApp({
             if (!this.userRole) return;
 
             await this.fetchCompanyPlacements();
+            if (!this.userRole) return;
+
+            if (this.selectedJobId) {
+                await this.fetchJobApplications(this.selectedJobId);
+            }
         },
 
         async fetchCompanyJobs() {
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/company/jobs",
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/company/jobs", {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load company jobs";
                 return;
@@ -424,17 +468,13 @@ const app = createApp({
         async createJob() {
             this.clearMessages();
 
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/company/jobs",
-                {
-                    method: "POST",
-                    headers: window.api.getAuthHeaders(true),
-                    body: JSON.stringify(this.companyJobForm)
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/company/jobs", {
+                method: "POST",
+                headers: window.api.getAuthHeaders(true),
+                body: JSON.stringify(this.companyJobForm)
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to create job";
                 return;
@@ -448,17 +488,13 @@ const app = createApp({
         async updateJobStatus(jobId, status) {
             this.clearMessages();
 
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                `/api/company/jobs/${jobId}`,
-                {
-                    method: "PATCH",
-                    headers: window.api.getAuthHeaders(true),
-                    body: JSON.stringify({ status })
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest(`/api/company/jobs/${jobId}`, {
+                method: "PATCH",
+                headers: window.api.getAuthHeaders(true),
+                body: JSON.stringify({ status })
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to update job status";
                 return;
@@ -473,16 +509,12 @@ const app = createApp({
             this.jobApplications = [];
             this.clearMessages();
 
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                `/api/company/jobs/${jobId}/applications`,
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest(`/api/company/jobs/${jobId}/applications`, {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load job applications";
                 return;
@@ -529,17 +561,13 @@ const app = createApp({
                 ...extraData
             };
 
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                `/api/company/applications/${appId}/status`,
-                {
-                    method: "PATCH",
-                    headers: window.api.getAuthHeaders(true),
-                    body: JSON.stringify(payload)
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest(`/api/company/applications/${appId}/status`, {
+                method: "PATCH",
+                headers: window.api.getAuthHeaders(true),
+                body: JSON.stringify(payload)
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to update application status";
                 return;
@@ -551,6 +579,8 @@ const app = createApp({
             if (this.selectedJobId) {
                 await this.fetchJobApplications(this.selectedJobId);
             }
+
+            await this.fetchCompanyPlacements();
         },
 
         async viewResume(studentId, studentName) {
@@ -582,6 +612,11 @@ const app = createApp({
         async finalizePlacement() {
             this.clearMessages();
 
+            if (!this.placementForm.appId) {
+                this.error = "Application ID missing";
+                return;
+            }
+
             const { response, data, unauthorized, failed } = await this.guardedRequest(
                 `/api/company/applications/${this.placementForm.appId}/finalize`,
                 {
@@ -595,7 +630,6 @@ const app = createApp({
             );
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to finalize placement";
                 return;
@@ -613,16 +647,12 @@ const app = createApp({
         },
 
         async fetchCompanyPlacements() {
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/company/placements",
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/company/placements", {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load placements";
                 return;
@@ -645,35 +675,27 @@ const app = createApp({
         },
 
         async fetchStudentProfile() {
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/student/profile",
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/student/profile", {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load student profile";
                 return;
             }
 
-            this.studentProfile = data;
+            this.studentProfile = data || null;
         },
 
         async fetchStudentJobs() {
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/student/jobs",
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/student/jobs", {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load jobs";
                 return;
@@ -690,16 +712,22 @@ const app = createApp({
                 return;
             }
 
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                `/api/student/apply/${jobId}`,
-                {
-                    method: "POST",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const alreadyApplied = this.studentApplications.some(app => {
+                const appJobId = String(app.job_id || app.jobId || "");
+                return appJobId && appJobId === String(jobId);
+            });
+
+            if (alreadyApplied) {
+                this.error = "You have already applied for this job";
+                return;
+            }
+
+            const { response, data, unauthorized, failed } = await this.guardedRequest(`/api/student/apply/${jobId}`, {
+                method: "POST",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to apply";
                 return;
@@ -708,19 +736,16 @@ const app = createApp({
             this.message = (data && data.message) || "Applied successfully";
             await this.fetchStudentApplications();
             await this.fetchStudentJobs();
+            await this.fetchStudentPlacements();
         },
 
         async fetchStudentApplications() {
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/student/applications",
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/student/applications", {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load student applications";
                 return;
@@ -730,16 +755,12 @@ const app = createApp({
         },
 
         async fetchStudentPlacements() {
-            const { response, data, unauthorized, failed } = await this.guardedRequest(
-                "/api/student/placements",
-                {
-                    method: "GET",
-                    headers: window.api.getAuthHeaders()
-                }
-            );
+            const { response, data, unauthorized, failed } = await this.guardedRequest("/api/student/placements", {
+                method: "GET",
+                headers: window.api.getAuthHeaders()
+            });
 
             if (unauthorized || failed) return;
-
             if (!response.ok) {
                 this.error = (data && data.message) || "Failed to load student placements";
                 return;
@@ -748,8 +769,28 @@ const app = createApp({
             this.studentPlacements = Array.isArray(data) ? data : [];
         },
 
+        async downloadOfferLetter(placementId) {
+            this.clearMessages();
+
+            if (!placementId) {
+                this.error = "Placement ID missing";
+                return;
+            }
+
+            const opened = await this.fetchBlobWithAuth(
+                `/api/student/placements/${placementId}/offer-letter`,
+                `offer_letter_${placementId}.pdf`
+            );
+
+            if (opened) {
+                this.message = "Offer letter downloaded successfully";
+            }
+        },
+
         onResumeFileChange(event) {
-            this.resumeFile = event.target.files[0] || null;
+            this.resumeFile = event && event.target && event.target.files
+                ? (event.target.files[0] || null)
+                : null;
         },
 
         async uploadResume() {
@@ -799,6 +840,7 @@ const app = createApp({
 
                 await this.fetchStudentProfile();
                 await this.fetchStudentJobs();
+                await this.fetchStudentApplications();
             } catch (err) {
                 this.error = "Server error while uploading resume";
             }
@@ -807,10 +849,7 @@ const app = createApp({
         async viewOwnResume() {
             this.clearMessages();
 
-            const opened = await this.fetchBlobWithAuth(
-                "/api/student/resume",
-                "my_resume.pdf"
-            );
+            const opened = await this.fetchBlobWithAuth("/api/student/resume", "my_resume.pdf");
 
             if (opened) {
                 this.message = "Resume opened successfully";
@@ -863,7 +902,7 @@ const app = createApp({
             this.message = "Login successful";
             this.resetLoginForm();
 
-            await window.router.goToDashboard(this, this.userRole);
+            await this.goToDashboard(this.userRole);
         },
 
         async submitRegister() {
@@ -931,7 +970,7 @@ const app = createApp({
             this.userRole = role;
             this.message = "Session restored";
             this.error = "";
-            await window.router.goToDashboard(this, role);
+            await this.goToDashboard(role);
         } catch (err) {
             window.api.clearToken();
             this.userRole = "";
@@ -976,16 +1015,24 @@ const app = createApp({
                         <div v-if="error" class="alert alert-danger">{{ error }}</div>
 
                         <admin-dashboard
-                            v-if="userRole === 'admin'"
+                            v-if="currentView === 'admin-dashboard'"
                             :admin-stats="adminStats"
                             :pending-companies="pendingCompanies"
+                            :admin-companies="adminCompanies"
+                            :admin-students="adminStudents"
+                            :admin-jobs="adminJobs"
+                            :admin-applications="adminApplications"
                             :admin-section="adminSection"
                             @approve-company="approveCompany"
+                            @export-companies="exportAdminCompaniesCsv"
+                            @export-students="exportAdminStudentsCsv"
+                            @export-jobs="exportAdminJobsCsv"
+                            @export-applications="exportAdminApplicationsCsv"
                             @logout="logout"
                         ></admin-dashboard>
 
                         <company-dashboard
-                            v-else-if="userRole === 'company'"
+                            v-else-if="currentView === 'company-dashboard'"
                             :company-jobs="companyJobs"
                             :selected-job-id="selectedJobId"
                             :job-applications="jobApplications"
@@ -1008,17 +1055,17 @@ const app = createApp({
                         ></company-dashboard>
 
                         <student-dashboard
-                            v-else-if="userRole === 'student'"
+                            v-else-if="currentView === 'student-dashboard'"
                             :student-profile="studentProfile"
                             :student-jobs="studentJobs"
                             :student-applications="studentApplications"
                             :student-placements="studentPlacements"
                             :resume-file="resumeFile"
-                            :student-section="studentSection"
                             @resume-file-change="onResumeFileChange"
                             @upload-resume="uploadResume"
                             @view-own-resume="viewOwnResume"
                             @apply-to-job="applyToJob"
+                            @download-offer-letter="downloadOfferLetter"
                             @logout="logout"
                         ></student-dashboard>
                     </template>
@@ -1026,6 +1073,28 @@ const app = createApp({
             </div>
         </div>
     `
-});
+};
+
+const app = createApp(RootApp);
+
+if (window.LoginComponent) {
+    app.component("login-component", window.LoginComponent);
+}
+
+if (window.RegisterComponent) {
+    app.component("register-component", window.RegisterComponent);
+}
+
+if (window.AdminDashboardComponent) {
+    app.component("admin-dashboard", window.AdminDashboardComponent);
+}
+
+if (window.CompanyDashboardComponent) {
+    app.component("company-dashboard", window.CompanyDashboardComponent);
+}
+
+if (window.StudentDashboardComponent) {
+    app.component("student-dashboard", window.StudentDashboardComponent);
+}
 
 app.mount("#app");

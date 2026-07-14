@@ -63,16 +63,92 @@ window.CompanyDashboardComponent = {
         "cancel-interview-form"
     ],
 
+    data() {
+        return {
+            jobsSearch: "",
+            applicationsSearch: "",
+            placementsSearch: ""
+        };
+    },
+
     computed: {
+        normalizedJobsSearch() {
+            return String(this.jobsSearch || "").trim().toLowerCase();
+        },
+
+        normalizedApplicationsSearch() {
+            return String(this.applicationsSearch || "").trim().toLowerCase();
+        },
+
+        normalizedPlacementsSearch() {
+            return String(this.placementsSearch || "").trim().toLowerCase();
+        },
+
+        filteredCompanyJobs() {
+            if (!this.normalizedJobsSearch) return this.companyJobs;
+
+            return this.companyJobs.filter(job => {
+                const text = [
+                    job.title,
+                    job.description,
+                    job.status,
+                    job.salary,
+                    job.location
+                ]
+                    .join(" ")
+                    .toLowerCase();
+
+                return text.includes(this.normalizedJobsSearch);
+            });
+        },
+
+        filteredJobApplications() {
+            if (!this.normalizedApplicationsSearch) return this.jobApplications;
+
+            return this.jobApplications.filter(app => {
+                const text = [
+                    app.student_name,
+                    app.student_id,
+                    app.status,
+                    app.job_title,
+                    app.company_name
+                ]
+                    .join(" ")
+                    .toLowerCase();
+
+                return text.includes(this.normalizedApplicationsSearch);
+            });
+        },
+
+        filteredCompanyPlacements() {
+            if (!this.normalizedPlacementsSearch) return this.companyPlacements;
+
+            return this.companyPlacements.filter(placement => {
+                const text = [
+                    placement.student_name,
+                    placement.position,
+                    placement.salary,
+                    placement.company_name
+                ]
+                    .join(" ")
+                    .toLowerCase();
+
+                return text.includes(this.normalizedPlacementsSearch);
+            });
+        },
+
         activeJobsCount() {
             return this.companyJobs.filter(job => String(job.status || "").toLowerCase() === "active").length;
         },
+
         closedJobsCount() {
             return this.companyJobs.filter(job => String(job.status || "").toLowerCase() === "closed").length;
         },
+
         totalApplicationsCount() {
             return this.jobApplications.length;
         },
+
         finalizedPlacementsCount() {
             return this.companyPlacements.length;
         }
@@ -90,6 +166,12 @@ window.CompanyDashboardComponent = {
         shortText(value, max = 100) {
             if (!value) return "No description provided";
             return value.length > max ? value.slice(0, max) + "..." : value;
+        },
+
+        openSection(section, params = {}) {
+            if (window.router && window.app) {
+                window.router.openCompanySection(window.app, section, params);
+            }
         },
 
         requestInterviewForm(appId) {
@@ -147,6 +229,42 @@ window.CompanyDashboardComponent = {
                         <i class="bi bi-box-arrow-right me-1"></i>Logout
                     </button>
                 </div>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 mb-4">
+                <button
+                    type="button"
+                    class="btn"
+                    :class="companySection === 'overview' ? 'btn-primary' : 'btn-outline-primary'"
+                    @click="openSection('overview')"
+                >
+                    Overview
+                </button>
+                <button
+                    type="button"
+                    class="btn"
+                    :class="companySection === 'jobs' ? 'btn-primary' : 'btn-outline-primary'"
+                    @click="openSection('jobs')"
+                >
+                    Jobs
+                </button>
+                <button
+                    v-if="selectedJobId"
+                    type="button"
+                    class="btn"
+                    :class="companySection === 'applications' ? 'btn-primary' : 'btn-outline-primary'"
+                    @click="openSection('applications', { jobId: selectedJobId })"
+                >
+                    Applications
+                </button>
+                <button
+                    type="button"
+                    class="btn"
+                    :class="companySection === 'placements' ? 'btn-primary' : 'btn-outline-primary'"
+                    @click="openSection('placements')"
+                >
+                    Placements
+                </button>
             </div>
 
             <div class="row g-3 mb-4">
@@ -255,16 +373,27 @@ window.CompanyDashboardComponent = {
                             </p>
                         </div>
                         <span class="soft-badge">
-                            {{ closedJobsCount }} closed
+                            {{ filteredCompanyJobs.length }} shown · {{ closedJobsCount }} closed
                         </span>
                     </div>
 
-                    <div v-if="companyJobs.length === 0" class="empty-state">
+                    <div class="mb-3">
+                        <input
+                            v-model="jobsSearch"
+                            type="text"
+                            class="form-control"
+                            placeholder="Search jobs by title, description, status, salary, or location"
+                        >
+                    </div>
+
+                    <div v-if="filteredCompanyJobs.length === 0" class="empty-state">
                         <div class="mb-2">
                             <i class="bi bi-briefcase fs-3 text-primary"></i>
                         </div>
-                        <div class="fw-semibold mb-1">No jobs posted yet</div>
-                        <div>Create your first job posting to start receiving applications.</div>
+                        <div class="fw-semibold mb-1">No jobs found</div>
+                        <div>
+                            {{ companyJobs.length === 0 ? 'Create your first job posting to start receiving applications.' : 'Try a different search term.' }}
+                        </div>
                     </div>
 
                     <div v-else class="table-responsive">
@@ -278,7 +407,7 @@ window.CompanyDashboardComponent = {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="job in companyJobs" :key="job.id">
+                                <tr v-for="job in filteredCompanyJobs" :key="job.id">
                                     <td>
                                         <div class="fw-semibold">{{ job.title }}</div>
                                         <div class="small text-muted">{{ shortText(job.description) }}</div>
@@ -328,16 +457,30 @@ window.CompanyDashboardComponent = {
 
             <div v-if="selectedJobId" class="section-card mb-4">
                 <div class="card-body p-4">
-                    <h5 class="section-title mb-3">
-                        <i class="bi bi-file-earmark-person me-2"></i>Applications for Selected Job
-                    </h5>
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+                        <h5 class="section-title mb-0">
+                            <i class="bi bi-file-earmark-person me-2"></i>Applications for Selected Job
+                        </h5>
+                        <span class="soft-badge">{{ filteredJobApplications.length }} shown</span>
+                    </div>
 
-                    <div v-if="jobApplications.length === 0" class="empty-state">
+                    <div class="mb-3">
+                        <input
+                            v-model="applicationsSearch"
+                            type="text"
+                            class="form-control"
+                            placeholder="Search applications by student name, student ID, status, job title, or company"
+                        >
+                    </div>
+
+                    <div v-if="filteredJobApplications.length === 0" class="empty-state">
                         <div class="mb-2">
                             <i class="bi bi-inbox fs-3 text-secondary"></i>
                         </div>
                         <div class="fw-semibold mb-1">No applications found</div>
-                        <div>This job does not have any applications yet.</div>
+                        <div>
+                            {{ jobApplications.length === 0 ? 'This job does not have any applications yet.' : 'Try a different search term.' }}
+                        </div>
                     </div>
 
                     <div v-else class="table-responsive">
@@ -350,7 +493,7 @@ window.CompanyDashboardComponent = {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="app in jobApplications" :key="app.id">
+                                <tr v-for="app in filteredJobApplications" :key="app.id">
                                     <td>
                                         <div class="fw-semibold">{{ app.student_name || 'Unknown student' }}</div>
                                         <div class="small text-muted">Student ID: {{ app.student_id || 'N/A' }}</div>
@@ -524,16 +667,30 @@ window.CompanyDashboardComponent = {
 
             <div class="section-card">
                 <div class="card-body p-4">
-                    <h5 class="section-title mb-3">
-                        <i class="bi bi-trophy-fill me-2"></i>Finalized Placements
-                    </h5>
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+                        <h5 class="section-title mb-0">
+                            <i class="bi bi-trophy-fill me-2"></i>Finalized Placements
+                        </h5>
+                        <span class="soft-badge">{{ filteredCompanyPlacements.length }} shown</span>
+                    </div>
 
-                    <div v-if="companyPlacements.length === 0" class="empty-state">
+                    <div class="mb-3">
+                        <input
+                            v-model="placementsSearch"
+                            type="text"
+                            class="form-control"
+                            placeholder="Search placements by student name, position, salary, or company"
+                        >
+                    </div>
+
+                    <div v-if="filteredCompanyPlacements.length === 0" class="empty-state">
                         <div class="mb-2">
                             <i class="bi bi-trophy fs-3 text-warning"></i>
                         </div>
-                        <div class="fw-semibold mb-1">No placements finalized yet</div>
-                        <div>Finalized offers will appear here after confirmation.</div>
+                        <div class="fw-semibold mb-1">No placements found</div>
+                        <div>
+                            {{ companyPlacements.length === 0 ? 'Finalized offers will appear here after confirmation.' : 'Try a different search term.' }}
+                        </div>
                     </div>
 
                     <div v-else class="table-responsive">
@@ -546,7 +703,7 @@ window.CompanyDashboardComponent = {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="placement in companyPlacements" :key="placement.id">
+                                <tr v-for="placement in filteredCompanyPlacements" :key="placement.id">
                                     <td>{{ placement.student_name || 'N/A' }}</td>
                                     <td>{{ placement.position || 'N/A' }}</td>
                                     <td>{{ formatCurrency(placement.salary) }}</td>

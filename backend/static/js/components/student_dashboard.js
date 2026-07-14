@@ -27,8 +27,18 @@ window.StudentDashboardComponent = {
         "resume-file-change",
         "upload-resume",
         "view-own-resume",
-        "apply-to-job"
+        "apply-to-job",
+        "download-offer-letter"
     ],
+
+    data() {
+        return {
+            interviewSearch: "",
+            jobsSearch: "",
+            applicationsSearch: "",
+            placementsSearch: ""
+        };
+    },
 
     computed: {
         normalizedStudentProfile() {
@@ -59,10 +69,89 @@ window.StudentDashboardComponent = {
                 const status = String(app.status || "").trim();
                 return status === "Interview" || status === "Shortlisted";
             });
+        },
+
+        filteredInterviewApplications() {
+            const query = this.normalizeSearch(this.interviewSearch);
+            if (!query) return this.interviewApplications;
+
+            return this.interviewApplications.filter(app => {
+                const haystack = [
+                    this.companyName(app),
+                    this.jobTitle(app),
+                    app.status || "",
+                    this.interviewMode(app),
+                    this.interviewLocation(app),
+                    this.interviewNotes(app),
+                    this.formatInterviewDateTime(this.interviewDateTime(app))
+                ]
+                    .join(" ")
+                    .toLowerCase();
+
+                return haystack.includes(query);
+            });
+        },
+
+        filteredStudentJobs() {
+            const query = this.normalizeSearch(this.jobsSearch);
+            if (!query) return this.safeStudentJobs;
+
+            return this.safeStudentJobs.filter(job => {
+                const haystack = [
+                    this.companyName(job),
+                    this.jobTitle(job),
+                    job.title || "",
+                    job.description || "",
+                    job.salary || ""
+                ]
+                    .join(" ")
+                    .toLowerCase();
+
+                return haystack.includes(query);
+            });
+        },
+
+        filteredStudentApplications() {
+            const query = this.normalizeSearch(this.applicationsSearch);
+            if (!query) return this.safeStudentApplications;
+
+            return this.safeStudentApplications.filter(app => {
+                const haystack = [
+                    this.companyName(app),
+                    this.jobTitle(app),
+                    app.status || ""
+                ]
+                    .join(" ")
+                    .toLowerCase();
+
+                return haystack.includes(query);
+            });
+        },
+
+        filteredStudentPlacements() {
+            const query = this.normalizeSearch(this.placementsSearch);
+            if (!query) return this.safeStudentPlacements;
+
+            return this.safeStudentPlacements.filter(placement => {
+                const haystack = [
+                    this.companyName(placement),
+                    placement.position || "",
+                    placement.salary || "",
+                    this.placementCompanyId(placement)
+                ]
+                    .join(" ")
+                    .toLowerCase();
+
+                return haystack.includes(query);
+            });
         }
     },
 
     methods: {
+        normalizeSearch(value) {
+            return String(value || "").trim().toLowerCase();
+        },
+
         badgeClass(status) {
             return window.api.badgeClass(status);
         },
@@ -81,10 +170,6 @@ window.StudentDashboardComponent = {
 
         placementCompanyId(item) {
             return item.company_id || item.companyid || "N/A";
-        },
-
-        studentName(item) {
-            return item.name || item.student_name || item.studentname || "N/A";
         },
 
         shortText(value, max = 120) {
@@ -141,6 +226,10 @@ window.StudentDashboardComponent = {
                 minute: "2-digit",
                 hour12: true
             });
+        },
+
+        downloadOfferLetter(placementId) {
+            this.$emit("download-offer-letter", placementId);
         }
     },
 
@@ -231,10 +320,19 @@ window.StudentDashboardComponent = {
 
             <div class="card mb-4 shadow-sm">
                 <div class="card-body">
-                    <h5 class="mb-3"><i class="bi bi-calendar-event-fill me-2"></i>Interview Schedule</h5>
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-3">
+                        <h5 class="mb-0"><i class="bi bi-calendar-event-fill me-2"></i>Interview Schedule</h5>
+                        <input
+                            v-model="interviewSearch"
+                            type="text"
+                            class="form-control"
+                            style="max-width: 320px;"
+                            placeholder="Search company, role, status, notes..."
+                        >
+                    </div>
 
-                    <div v-if="interviewApplications.length === 0" class="text-muted">
-                        No interview or shortlist updates yet.
+                    <div v-if="filteredInterviewApplications.length === 0" class="text-muted">
+                        No interview or shortlist updates found.
                     </div>
 
                     <div v-else class="table-responsive">
@@ -252,7 +350,7 @@ window.StudentDashboardComponent = {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="app in interviewApplications" :key="'interview-' + app.id">
+                                <tr v-for="app in filteredInterviewApplications" :key="'interview-' + app.id">
                                     <td>{{ companyName(app) }}</td>
                                     <td>{{ jobTitle(app) }}</td>
                                     <td>
@@ -278,10 +376,19 @@ window.StudentDashboardComponent = {
 
             <div class="card mb-4 shadow-sm">
                 <div class="card-body">
-                    <h5 class="mb-3"><i class="bi bi-briefcase-fill me-2"></i>Available Jobs</h5>
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-3">
+                        <h5 class="mb-0"><i class="bi bi-briefcase-fill me-2"></i>Available Jobs</h5>
+                        <input
+                            v-model="jobsSearch"
+                            type="text"
+                            class="form-control"
+                            style="max-width: 320px;"
+                            placeholder="Search company, title, description..."
+                        >
+                    </div>
 
-                    <div v-if="safeStudentJobs.length === 0" class="text-muted">
-                        No active jobs available.
+                    <div v-if="filteredStudentJobs.length === 0" class="text-muted">
+                        No matching active jobs found.
                     </div>
 
                     <div v-else class="table-responsive">
@@ -296,7 +403,7 @@ window.StudentDashboardComponent = {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="job in safeStudentJobs" :key="job.id">
+                                <tr v-for="job in filteredStudentJobs" :key="job.id">
                                     <td>{{ companyName(job) }}</td>
                                     <td>{{ job.title || 'N/A' }}</td>
                                     <td>{{ shortText(job.description) }}</td>
@@ -319,10 +426,19 @@ window.StudentDashboardComponent = {
 
             <div class="card mb-4 shadow-sm">
                 <div class="card-body">
-                    <h5 class="mb-3"><i class="bi bi-journal-check me-2"></i>My Applications</h5>
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-3">
+                        <h5 class="mb-0"><i class="bi bi-journal-check me-2"></i>My Applications</h5>
+                        <input
+                            v-model="applicationsSearch"
+                            type="text"
+                            class="form-control"
+                            style="max-width: 320px;"
+                            placeholder="Search company, role, status..."
+                        >
+                    </div>
 
-                    <div v-if="safeStudentApplications.length === 0" class="text-muted">
-                        No applications yet.
+                    <div v-if="filteredStudentApplications.length === 0" class="text-muted">
+                        No matching applications found.
                     </div>
 
                     <div v-else class="table-responsive">
@@ -335,7 +451,7 @@ window.StudentDashboardComponent = {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="app in safeStudentApplications" :key="app.id">
+                                <tr v-for="app in filteredStudentApplications" :key="app.id">
                                     <td>{{ companyName(app) }}</td>
                                     <td>{{ jobTitle(app) }}</td>
                                     <td>
@@ -352,29 +468,52 @@ window.StudentDashboardComponent = {
 
             <div class="card shadow-sm">
                 <div class="card-body">
-                    <h5 class="mb-3"><i class="bi bi-patch-check-fill me-2"></i>My Placements</h5>
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-3">
+                        <h5 class="mb-0"><i class="bi bi-patch-check-fill me-2"></i>My Placements</h5>
+                        <input
+                            v-model="placementsSearch"
+                            type="text"
+                            class="form-control"
+                            style="max-width: 320px;"
+                            placeholder="Search company, position, salary, company ID..."
+                        >
+                    </div>
 
-                    <div v-if="safeStudentPlacements.length === 0" class="text-muted">
-                        No placements yet.
+                    <div v-if="filteredStudentPlacements.length === 0" class="text-muted">
+                        No matching placements found.
                     </div>
 
                     <div v-else class="table-responsive">
                         <table class="table table-hover align-middle">
                             <thead class="table-light">
                                 <tr>
+                                    <th>Company</th>
                                     <th>Position</th>
                                     <th>Salary</th>
                                     <th>Company ID</th>
+                                    <th>Offer Letter</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="placement in safeStudentPlacements" :key="placement.id">
+                                <tr v-for="placement in filteredStudentPlacements" :key="placement.id">
+                                    <td>{{ companyName(placement) }}</td>
                                     <td>{{ placement.position || 'N/A' }}</td>
                                     <td>{{ formatCurrency(placement.salary) }}</td>
                                     <td>{{ placementCompanyId(placement) }}</td>
+                                    <td>
+                                        <button
+                                            class="btn btn-sm btn-primary"
+                                            @click="downloadOfferLetter(placement.id)"
+                                        >
+                                            <i class="bi bi-file-earmark-pdf-fill me-1"></i>Download PDF
+                                        </button>
+                                    </td>
                                 </tr>
                             </tbody>
                         </table>
+                        <p class="text-muted small mt-2 mb-0">
+                            Click <strong>Download PDF</strong> to get your offer letter for company or college submission.
+                        </p>
                     </div>
                 </div>
             </div>
